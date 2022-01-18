@@ -1,28 +1,74 @@
 const SHA256 = require('crypto-js/sha256');
+const EC = require('elliptic').ec;
+const ec = new EC('secp256k1');
 
-class Transactions {
+class Transaction {
   constructor(fromAddress, toAddress, amount) {
     this.fromAddress = fromAddress;
     this.toAddress = toAddress;
     this.amount = amount;
   }
+
+  /**
+   * Hashes all the fields of the transaction and returns it as a string.
+   */
+  calculateHash() {
+    return SHA256(this.fromAddress + this.toAddress + this.amount).toString();
+  }
+
+  /**
+   * Signs a transaction with the given signingKey (which is an Elliptic keypair
+   * object that contains a private key). The signature is then stored inside the
+   * transaction object and later stored on the blockchain.
+   */
+  signTransaction(signingKey) {
+    // You can only send a transaction from the wallet that is linked to your
+    // key. So here we check if the fromAddress matches your publicKey
+    if (signingKey.getPublic('hex') !== this.fromAddress) {
+      throw new Error('You cannot sign transactions for other wallets!');
+    }
+
+    // Calculate the hash of this transaction, sign it with the key
+    // and store it inside the transaction obect
+    const hashTx = this.calculateHash();
+    const sig = signingKey.sign(hashTx, 'base64');
+
+    this.signature = sig.toDER('hex');
+  }
+
+  /**
+   * Checks if the signature is valid (transaction has not been tampered with).
+   * It uses the fromAddress as the public key.
+   */
+  isValid() {
+    // If the transaction doesn't have a from address we assume it's a
+    // mining reward and that it's valid. You could verify this in a
+    // different way (special field for instance)
+    if (this.fromAddress === null) return true;
+
+    if (!this.signature || this.signature.length === 0) {
+      throw new Error('No signature in this transaction');
+    }
+
+    const publicKey = ec.keyFromPublic(this.fromAddress, 'hex');
+    return publicKey.verify(this.calculateHash(), this.signature);
+  }
 }
 
 class Block {
   constructor(timestamp, transactions, previousHash = '') {
+    this.previousHash = previousHash;
     this.timestamp = timestamp;
     this.transactions = transactions;
-    this.previousHash = previousHash;
-    this.hash = this.calculateHash();
     this.nonce = 0;
+    this.hash = this.calculateHash();
   }
 
   calculateHash() {
     return SHA256(
-      this.index +
-        this.previousHash +
+      this.previousHash +
         this.timestamp +
-        JSON.stringify(this.data) +
+        JSON.stringify(this.transactions) +
         this.nonce
     ).toString();
   }
@@ -35,7 +81,17 @@ class Block {
       this.hash = this.calculateHash();
     }
 
-    console.log('Block Mined', this.hash);
+    console.log('BLOCK MINED: ' + this.hash);
+  }
+
+  hasValidTransactions() {
+    for (const tx of this.transactions) {
+      if (!tx.isValid()) {
+        return false;
+      }
+    }
+
+    return true;
   }
 }
 
@@ -48,7 +104,7 @@ class Blockchain {
   }
 
   createGenesisBlock() {
-    return new Block('1/1/2022', 'Genesis Block', '0');
+    return new Block(Date.parse('2017-01-01'), [], '0');
   }
 
   getLatestBlock() {
@@ -56,22 +112,43 @@ class Blockchain {
   }
 
   minePendingTransactions(miningRewardAddress) {
-    let block = new Block(Date.now(), this.pendingTransactions);
+    const rewardTx = new Transaction(
+      null,
+      miningRewardAddress,
+      this.miningReward
+    );
+    this.pendingTransactions.push(rewardTx);
+
+    let block = new Block(
+      Date.now(),
+      this.pendingTransactions,
+      this.getLatestBlock().hash
+    );
     block.mineBlock(this.difficulty);
 
     console.log('Block successfully mined!');
     this.chain.push(block);
-    this.pendingTransactions = [
-      new Transactions(null, miningRewardAddress, this.miningReward),
-    ];
+
+    this.pendingTransactions = [];
   }
 
-  createTransaction(transaction) {
+  addTransaction(transaction) {
+    // Prevent people from adding a fake mining reward transaction
+    if (!transaction.fromAddress || !transaction.toAddress) {
+      throw new Error('Transaction must include from and to address');
+    }
+
+    // Verify the transactiion
+    if (!transaction.isValid()) {
+      throw new Error('Cannot add invalid transaction to chain');
+    }
+
     this.pendingTransactions.push(transaction);
   }
 
   getBalanceOfAddress(address) {
     let balance = 0;
+
     for (const block of this.chain) {
       for (const trans of block.transactions) {
         if (trans.fromAddress === address) {
@@ -87,23 +164,30 @@ class Blockchain {
     return balance;
   }
 
-  /**
-   * Loops over all the blocks in the chain and verify if they are properly
-   * linked together and nobody has tampered with the hashes. By checking
-   * the blocks it also verifies the (signed) transactions inside of them.
-   *
-   * @returns {boolean}
-   */
   isChainValid() {
+    // Check if the Genesis block hasn't been tampered with by comparing
+    // the output of createGenesisBlock with the first block on our chain
+    const realGenesis = JSON.stringify(this.createGenesisBlock());
+
+    if (realGenesis !== JSON.stringify(this.chain[0])) {
+      return false;
+    }
+
+    // Check the remaining blocks on the chain to see if there hashes and
+    // signatures are correct
     for (let i = 1; i < this.chain.length; i++) {
       const currentBlock = this.chain[i];
       const previousBlock = this.chain[i - 1];
 
-      if (previousBlock.hash !== currentBlock.previousHash) {
+      if (!currentBlock.hasValidTransactions()) {
         return false;
       }
 
       if (currentBlock.hash !== currentBlock.calculateHash()) {
+        return false;
+      }
+
+      if (currentBlock.previousHash !== previousBlock.calculateHash()) {
         return false;
       }
     }
@@ -113,4 +197,4 @@ class Blockchain {
 }
 
 module.exports.Blockchain = Blockchain;
-module.exports.Transactions = Transactions;
+module.exports.Transaction = Transaction;
