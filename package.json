@@ -1,0 +1,16 @@
+{
+  "name": "maancoin",
+  "version": "1.0.0",
+  "description": "blockchain learning",
+  "main": "src/blockchain.js",
+  "dependencies": {
+    "crypto-js": "^4.1.1",
+    "elliptic": "^6.5.4"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Aamir",
+  "license": "ISC"
+}

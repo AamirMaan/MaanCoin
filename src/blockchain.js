@@ -112,24 +112,5 @@ class Blockchain {
   }
 }
 
-let savejeeCoin = new Blockchain();
-savejeeCoin.createTransaction(new Transactions('address1', 'address2', 100));
-
-console.log('Starting the miner');
-savejeeCoin.minePendingTransactions('meraAddress');
-
-savejeeCoin.createTransaction(new Transactions('address2', 'address1', 50));
-savejeeCoin.minePendingTransactions('meraAddress');
-
-console.log(
-  '\n Balance of meraAddress',
-  savejeeCoin.getBalanceOfAddress('meraAddress')
-);
-console.log(
-  '\n Balance of address1',
-  savejeeCoin.getBalanceOfAddress('address1')
-);
-console.log(
-  '\n Balance of address2',
-  savejeeCoin.getBalanceOfAddress('address2')
-);
+module.exports.Blockchain = Blockchain;
+module.exports.Transactions = Transactions;
